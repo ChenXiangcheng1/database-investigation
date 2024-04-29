@@ -1,4 +1,4 @@
-alphaName,timeCost  s
+alphaName,timeCost(s)
 1,55.4786319732666
 2,1.7702686786651611
 3,1.7871625423431396
