@@ -1,0 +1,12 @@
+// select count(*) from loadTable("dfs://k_day_level", "k_day")  // 10,432,000
+// select count(*) from loadTable("dfs://info", "info_data")  // 4000
+
+tb_k_day = loadTable("dfs://k_day_level", "k_day")
+// saveText(tb_k_day, fpath+"k_day.csv")
+tb_info_data = loadTable("dfs://info", "info_data")
+// saveText(tb_info_data, fpath+"info_data.csv")
+
+// 导出为CSV
+fpath = "/data/"
+saveText((select securityid,temporalFormat(tradetime, "yyyy-MM-dd"),open,close,high,low,vol,val,vwap from tb_k_day), fpath+"k_day.csv", header=false)
+saveText(select * from tb_info_data, fpath+"info_data.csv", header=false)

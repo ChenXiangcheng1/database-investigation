@@ -1,0 +1,36 @@
+// undef all
+
+login(`admin, `123456)
+
+// workDir = "/data"
+// if (!exists(workDir)) mkdir(workDir)
+data_path = "/data/trades_small.csv"
+db_name = "dfs://db_ddbtest"
+tb_name = "tb_ddbtest"
+
+
+// 准备模拟数据/data/trades_big.csv, 4000万行3.5G
+n = 40000000
+sample = table(rand(string('A'..'Z')+"XXXX", n) as symbol, 2000.01.01+rand(365, n) as date, rand(timestamp("2000.01.01 00:00:00") + rand(365*24*60*60*1000, n), n) as time, rand(40.0, n) as bid, rand(40.0, n) as ofr, rand(40, n) as bidsiz, rand(40, n) as ofrsiz, rand(10000, n) as mode, rand('A'..'Z', n) as ex, rand(string('A'..'Z')+"X", n) as mmid)
+sample.saveText(data_path)
+
+
+// 建库
+if (existsDatabase(db_name)){
+    dropDatabase(db_name)
+}
+// db = database(db_name, HASH, [SYMBOL,25])  // 哈希分区
+db = database(db_name, VALUE, string('A'..'Z')+"XXXX")  // 值分区
+
+
+// 建表
+schema_tb = table(1:0,`symbol`date`time`bid`ofr`bidsiz`ofrsiz`mode`ex`mmid,[SYMBOL,DATE,SECOND,DOUBLE,DOUBLE,INT,INT,INT,CHAR,SYMBOL])  // capacity:size建表内存分配，colNames，colTypes
+db.createPartitionedTable(schema_tb, tb_name, `symbol)  // table对象,表名，分区列
+
+
+// 导入CSV数据到表
+loadTextEx(db, tb_name, 'symbol', data_path)  // 数据库,表名,分区列,文件名,schema数据类型  // 56s
+// -----(1 min 22 s)-----
+
+tb = db.loadTable(`tb_ddbtest)
+select * from tb

@@ -1,0 +1,21 @@
+// 因子计算
+
+// 面板数据模式
+//alpha 1 
+//Alpha#001公式：rank(Ts_ArgMax(SignedPower((returns<0?stddev(returns,20):close), 2), 5))-0.5
+
+@state
+def alpha1TS(close){
+	return mimax(pow(iif(ratios(close) - 1 < 0, mstd(ratios(close) - 1, 20),close), 2.0), 5)
+}
+
+def alpha1Panel(close){
+	return rowRank(X=alpha1TS(close), percent=true) - 0.5
+}
+
+// input = exec close from loadTable("dfs://k_minute","k_minute") where date(tradetime) between 2020.01.01 : 2020.01.31 pivot by tradetime, securityid
+input = exec close from loadTable("dfs://k_minute_level","k_minute") where date(tradetime) between 2020.02.01 : 2020.02.29 pivot by tradetime, securityid
+
+res = alpha1Panel(input)
+
+// SQL模式
