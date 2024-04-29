@@ -19,6 +19,8 @@ BTW：还看到有些用 [HDF5](https://zhuanlan-zhihu-com.translate.goog/p/6755
 
 
 
+
+
 ## 性能测试
 
 数据库：社区单机版 DolphinDB，单机版 ClickHouse，单机版 DuckDB
@@ -38,6 +40,8 @@ ClickHouse排序键：securityid、tradetime
 DuckDB设置了索引 (securityid)、(tradetime)、(securityid, tradetime)、date_trunc('day', tradetime)、strftime(tradetime, '%X')
 
 [Clickhouse 建库建表](./performance-test/ch/ddl.sql)	|	[DDB 建库建表](./performance-test/ddb/createSnapshotDbTable.dos)	|	[DuckDB 建库建表](./performance-test/duckdb/ddl.sql)
+
+
 
 
 
@@ -72,6 +76,8 @@ DuckDB设置了索引 (securityid)、(tradetime)、(securityid, tradetime)、dat
 
 
 
+
+
 ### 更新和删除
 
 * DDB 的更新记录**是将整个chunk块或表删除后更新**而不是行更新，仅适用于低频更新，不适合高频更新(毫秒级更新任务)，所以测试也没意义
@@ -83,6 +89,8 @@ DuckDB设置了索引 (securityid)、(tradetime)、(securityid, tradetime)、dat
   ```
 
 * DuckDB支持行记录的更新
+
+
 
 
 
@@ -98,6 +106,8 @@ BTW： DDB、Clickhouse设置排序键，插入后数据有序。DuckDB创建表
 
 
 
+
+
 ### CSV导入数据库
 
 DDB 社区版限制了内存8G，需要分块导出
@@ -108,6 +118,8 @@ DDB 社区版限制了内存8G，需要分块导出
 | 100G |            | 1h 36m     | 1h 15m 42s |
 
 BTW：内存、硬盘也是瓶颈，会吃满内存、硬盘活动时间
+
+
 
 
 
@@ -145,6 +157,8 @@ DDB支持alpha因子的挖掘，这里对比下DDB和pandas效率
 
 [DDB代码](./WorldQuant 101 Alpha 因子指标库/time-test/wq101alphaDDBTime.dos)				|	[Pandas代码](./WorldQuant 101 Alpha 因子指标库/time-test/wq101alphaPyTime.py)
 [DDB因子测试完整结果](./WorldQuant 101 Alpha 因子指标库/res/ddbPerformance2.csv)	|	[Pandas因子测试完整结果](./WorldQuant 101 Alpha 因子指标库/res/pyPerformance.txt)
+
+
 
 
 
@@ -246,6 +260,8 @@ DDB支持alpha因子的挖掘，这里对比下DDB和pandas效率
 
 
 
+
+---
 
 ## 总结
 
