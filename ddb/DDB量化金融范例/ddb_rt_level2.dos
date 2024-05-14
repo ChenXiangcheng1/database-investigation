@@ -1,0 +1,16 @@
+// 实时行情处理
+// 通过订阅流数据表从API读取数据
+
+// 共享流数据表 初始容量100行
+share streamTable(100:0, `symbol`datetime`last`askPrice1`bidPrice1`askVolume1`bidVolume1`volume, [SYMBOL,DATETIME,DOUBLE,DOUBLE,DOUBLE,INT,INT,INT]) as level2
+
+// 建库建表：dfs://level2Replay、quotes
+dbDate = database("", VALUE, 2020.01.01..2020.12.31)
+dbSymbol=database("", HASH, [SYMBOL, 10])
+db = database("dfs://level2Replay", COMPO, [dbDate, dbSymbol])
+modal = table(1:0, `symbol`datetime`last`askPrice1`bidPrice1`askVolume1`bidVolume1`volume, [SYMBOL,DATETIME,DOUBLE,DOUBLE,DOUBLE,INT,INT,INT])
+db.createPartitionedTable(modal,`quotes, `datetime`symbol)
+
+// 使用数据回放功能，来代替实时数据。数据回放+流数据处理引擎
+data = select symbol, datetime(datetime(date(date))+second(time)) as datetime, last, askPrice1, bidPrice1, askVolume1, bidVolume1, curVol as volume from loadTable("dfs://level2","quotes")
+loadTable("dfs://level2Replay","quotes").append!(data)

@@ -1,0 +1,25 @@
+getHomeDir()  // /data/ddb/server/data
+use wq101alpha
+use prepare101  
+getNodeAlias()
+
+login('admin', '123456')
+
+// 2.2准备数据
+rawData = loadTable("dfs://k_day_level", "k_day")
+infoData = select * from loadTable("dfs://info", "info_data")
+
+startTime = timestamp(2010.01.01)
+endTime = timestamp(2010.01.31)
+data = prepareData(rawData=rawData, startTime=startTime, endTime=endTime, securityidName="securityid", tradetimeName="tradetime", openName="open", closeName="close", highName="high", lowName="low", volumeName="vol", vwapName="vwap", capName="cap", indclassName="indclass", infoData=infoData, infoSecurityidName="securityid")
+
+// 2.3
+// alpha1
+input1 = exec close from data where tradetime between startTime : endTime pivot by tradetime, securityid
+res1 = WQAlpha1(input1)
+
+// alpha2
+input2 = dict(`vol`close`open, panel(data.tradetime, data.securityid, [data.vol, data.close, data.open]))
+res2 = WQAlpha2(input2.vol, input2.close, input2.open)
+// alpha101
+res = select tradetime, securityid, `alpha101 as factorname, WQAlpha101(close, open, high, low) as val from data where tradetime between startTime : endTime
