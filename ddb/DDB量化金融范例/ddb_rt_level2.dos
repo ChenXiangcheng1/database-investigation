@@ -1,6 +1,7 @@
-// 实时行情处理
-// 通过订阅流数据表从API读取数据
+// 实时行情处理，使用数据回放+流数据处理引擎
 
+
+// 5.1 将数据写入流表
 // 共享流数据表 初始容量100行
 share streamTable(100:0, `symbol`datetime`last`askPrice1`bidPrice1`askVolume1`bidVolume1`volume, [SYMBOL,DATETIME,DOUBLE,DOUBLE,DOUBLE,INT,INT,INT]) as level2
 
@@ -11,6 +12,76 @@ db = database("dfs://level2Replay", COMPO, [dbDate, dbSymbol])
 modal = table(1:0, `symbol`datetime`last`askPrice1`bidPrice1`askVolume1`bidVolume1`volume, [SYMBOL,DATETIME,DOUBLE,DOUBLE,DOUBLE,INT,INT,INT])
 db.createPartitionedTable(modal,`quotes, `datetime`symbol)
 
-// 使用数据回放功能，来代替实时数据。数据回放+流数据处理引擎
-data = select symbol, datetime(datetime(date(date))+second(time)) as datetime, last, askPrice1, bidPrice1, askVolume1, bidVolume1, curVol as volume from loadTable("dfs://level2","quotes")
+data = select symbol, datetime(datetime(date(date))+second(time)) as datetime, last, askPrice1, bidPrice1, askVolume1, bidVolume1, curVol as volume 
+    from loadTable("dfs://level2","quotes") where date <= 2020.06.05
 loadTable("dfs://level2Replay","quotes").append!(data)
+// select count(*) from data
+
+quotes = loadTable("dfs://level2Replay","quotes")
+repartitionSchema = time(cutPoints(08:00:00..18:00:00,10))  
+inputDS = replayDS(<select * from quotes>, `datetime, `datetime,  repartitionSchema)  //设置每次提取到内存数据量=1小时的数据源
+
+// 批处理，将数据源replay到流数据表level2来代替实时数据，用于高频策略回测
+submitJob("replay_quotes", "replay_quotes_stream",  replay,  [inputDS],  [`level2], `datetime, `datetime, 10, false, 2)  // 加速10倍时间回放
+
+// 5.2 用流计算生成K线
+// 每隔5分钟计算过去5分钟的K线数据到OHLC1 Open High Low Close 高开低收
+modal = table(100:0, `symbol`datetime`last`askPrice1`bidPrice1`askVolume1`bidVolume1`volume, [SYMBOL,DATETIME,DOUBLE,DOUBLE,DOUBLE,INT,INT,INT])
+share streamTable(100:0, `datetime`symbol`open`high`low`close`volume,[DATETIME,SYMBOL,DOUBLE,DOUBLE,DOUBLE,DOUBLE,LONG]) as OHLC1
+// 流数据聚合引擎
+tsAggr1 = createTimeSeriesAggregator(name="tsAggr1", windowSize=300, step=300, 
+    metrics=<[first(last),max(last),min(last),last(last),sum(volume)]>, 
+    dummyTable=modal, outputTable=OHLC1, timeColumn=`datetime, keyColumn=`symbol)
+// 可以通过subscribeTable()方法订阅流数据表level2，实现从API读取数据
+subscribeTable(tableName="level2", actionName="act_tsAggr1", offset=0, handler=append!{tsAggr1}, msgAsTable=true);
+
+// 每隔1分钟计算过去5分钟的K线数据到OHLC2
+modal = table(100:0, `symbol`datetime`last`askPrice1`bidPrice1`askVolume1`bidVolume1`volume, [SYMBOL,DATETIME,DOUBLE,DOUBLE,DOUBLE,INT,INT,INT])
+share streamTable(100:0, `datetime`symbol`open`high`low`close`volume,[DATETIME,SYMBOL,DOUBLE,DOUBLE,DOUBLE,DOUBLE,LONG]) as OHLC2
+tsAggr2 = createTimeSeriesAggregator(name="tsAggr2", windowSize=300, step=60, 
+metrics=<[first(last),max(last),min(last),last(last),sum(volume)]>, 
+dummyTable=modal, outputTable=OHLC2, timeColumn=`datetime, keyColumn=`symbol)
+subscribeTable(tableName="level2", actionName="act_tsAggr2", offset=0, handler=append!{tsAggr2}, msgAsTable=true);  // 异步level2追加到tsAggr2，将数据注入流数据聚合引擎进行计算
+
+// 5.3 用流计算生成实时高频因子
+// 将实时数据与历史数据结合来计算因子(前100笔记录与前200笔记录的资金净流入之比)
+
+// 定义函数calcNetAmountRatio，对一个向量求前n个与前2n个元素之和的比值：
+defg calcNetAmountRatio(x, n){
+	size = x.size()
+	return x.subarray((size - n):size).sum() \ x.subarray((size - 2*n):size).sum()
+}
+
+// 因子计算函数
+// factorHandler函数接收一个字典d，一个因子名facName，一个流数据表msg，将计算结果写入一个流数据表factorTable
+// 将流数据表msg，追加到字典
+def factorHandler(mutable factorTable, mutable d, facName, msg){
+		codeList = msg.symbol.distinct()
+		symbolCount = codeList.size()
+		//资金净流入（net_amount）= volume * iif(bidPrice1>=askPrice1, 1, -1)
+		t2 = select symbol, volume * iif(bidPrice1>=askPrice1, 1, -1) as net_amount from msg		
+        // 更新字典d，追加{t2.symbol, t2.net_amount}
+		dictUpdate!(d, append!, t2.symbol, t2.net_amount)
+		//计算因子
+	  	factorValue = array(DOUBLE,symbolCount)
+		for(i in 0:symbolCount){
+			factorValue[i] = calcNetAmountRatio(d[codeList[i]],100)
+		}
+		// 添加时间戳，写入因子结果表
+		factorTable.append!(table(take(now(),symbolCount) as timestamp, codeList as symbol,factorValue as value, take(facName,symbolCount) as factorName))
+}
+
+// 结果因子表FACTOR
+share(streamTable(100:0, `timestamp`symbol`value`factorName,[TIMESTAMP,SYMBOL,DOUBLE,SYMBOL]),"FACTOR")
+// 构造字典d
+d = dict(STRING, ANY)
+his = select symbol,volume * iif(bidPrice1>=askPrice1, 1, -1) as net_amount from loadTable("dfs://level2","quotes") context by symbol limit -200
+for(id in his[`symbol].distinct())
+    d[id]= exec net_amount from his where symbol == id
+// 订阅流数据表level2，并计算因子
+subscribeTable(tableName="level2", actionName="act_factor", offset=0, handler=factorHandler{FACTOR,d,"factor1"}, msgAsTable=true, batchSize=4000, throttle=1)  // handler接收的msg参数是流数据表level2
+
+// 5.4 使用键值表缓存最新报价和交易价格
+// 键值内存表，键为keyColumns
+newestLevel2 = keyedTable(`symbol, 100:0, `symbol`datetime`last`askPrice1`bidPrice1`askVolume1`bidVolume1`volume, [SYMBOL,DATETIME,DOUBLE,DOUBLE,DOUBLE,INT,INT,INT])
+subscribeTable(tableName="level2", actionName="newestLevel2data", offset=0, handler=append!{newestLevel2}, msgAsTable=true)

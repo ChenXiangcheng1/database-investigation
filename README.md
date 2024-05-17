@@ -92,8 +92,6 @@ DuckDB设置了索引 (securityid)、(tradetime)、(securityid, tradetime)、dat
 
 
 
-
-
 ### 插入
 
 列式数据库，建议采用批量插入，并且插入之前预先对数据分组
